@@ -1,17 +1,17 @@
 /**
  * This fille is part of My Game Projects.
  * Copyright (C) Steve Taylor (sat0198@gmail.com)
- * 
+ *
  * My Game Prokjects is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either version 2
  * of the License, or (at your option) any later version.
- * 
+ *
  * My Game Projects is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program; if not, write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
@@ -24,7 +24,7 @@ import org.slf4j.LoggerFactory;
 
 public class Sudoku {
     static final Logger LOGGER = LoggerFactory.getLogger(Sudoku.class);
-    
+
     public static final int NUM_CELLS = 81;
     public static final int NUM_SETS = 27;
     public static final int NUM_ROWS = 9;
@@ -68,6 +68,16 @@ public class Sudoku {
         }
     }
 
+    static int toBit(int num) {
+        for (int i = 0; i < NUM_ROWS - 1; ++i) {
+            if (num == 1) {
+                return i;
+            }
+            num >>= 1;
+        }
+        return NUM_ROWS - 1;
+    }
+
     short bits[];
     short count[];
     int known;
@@ -81,73 +91,157 @@ public class Sudoku {
 
         for (int i = 0; i < NUM_CELLS; ++i) {
             if (init.charAt(i) >= '1' && init.charAt(i) <= '9') {
-                this.set(i, init.charAt(i) - '1');
+                set(i, init.charAt(i) - '1');
             }
         }
     }
 
     public Sudoku() {
-        this.bits = new short[NUM_CELLS];
-        this.count = new short[NUM_CELLS];
-        this.known = 0;
+        bits = new short[NUM_CELLS];
+        count = new short[NUM_CELLS];
+        known = 0;
 
-        for (int i = 0; i < this.bits.length; ++i) {
-            this.bits[i] = ALL_BITS;
-            this.count[i] = NUM_ROWS;
+        for (int i = 0; i < bits.length; ++i) {
+            bits[i] = ALL_BITS;
+            count[i] = NUM_ROWS;
         }
     }
 
     public void eliminate(int cell, int num) {
         LOGGER.info("Elimination: " + cell + " is " + (num + 1));
-        this.set(cell, num);
+        set(cell, num);
     }
 
-    public void remove(int cell, int num) {
-        if (this.count[cell] > 1) {
-            final short bit = (short) (1 << num);
-
-            if ((this.bits[cell] & bit) != 0) {
-                this.bits[cell] &= ~bit;
-                if (this.count[cell] == 2) {
-                    this.eliminate(cell, num);
-                }
-                else {
-                    --this.count[cell];
+    public void lockedPair() {
+        for (int i = 0; i < NUM_ROWS; ++i) {
+            for (int j = i + 1; j < NUM_ROWS; ++j) {
+                final int mask = ~(1 << i | 1 << j);
+                for (int k = 0; k < SETS.length; ++k) {
+                    int cell = -1;
+                    int cell0 = -1;
+                    int count = 0;
+                    for (int l = 0; l < NUM_ROWS; ++l) {
+                        if ((bits[SETS[k][l]] & mask) == 0) {
+                            cell0 = cell;
+                            cell = SETS[k][l];
+                            count++;
+                        }
+                    }
+                    if (count == 2 && this.count[cell] > 1 && this.count[cell0] > 1) {
+                        LOGGER.info("LockedPair: " + cell0 + " and " + cell + " have " + (i + 1) + " and " + (j + 1));
+                        for (int l = 0; l < NUM_ROWS; ++l) {
+                            if (SETS[k][l] != cell0 && SETS[k][l] != cell) {
+                                remove(SETS[k][l], i);
+                                remove(SETS[k][l], j);
+                            }
+                        }
+                    }
                 }
             }
         }
-        else {
-            throw new IllegalArgumentException("Cell is already known");
+    }
+
+    public void lockedTrio() {
+        for (int i = 0; i < NUM_ROWS; ++i) {
+            for (int j = i + 1; j < NUM_ROWS; ++j) {
+                for (int k = j + 1; k < NUM_ROWS; ++k) {
+                    final int mask = ~(1 << i | 1 << j | 1 << k);
+                    for (int l = 0; l < SETS.length; ++l) {
+                        int cell = -1;
+                        int cell0 = -1;
+                        int cell1 = -1;
+                        int count = 0;
+                        for (int m = 0; m < NUM_ROWS; ++m) {
+                            if ((bits[SETS[l][m]] & mask) == 0) {
+                                cell1 = cell0;
+                                cell0 = cell;
+                                cell = SETS[l][m];
+                                count++;
+                            }
+                        }
+                        if (count == 3) {
+                            LOGGER.info("LockedTrio: " + cell1 + " and " + cell0 + " and " + cell + " have " + (i + 1)
+                                    + " and " + (j + 1) + " and " + (k + 1));
+                            for (int m = 0; m < NUM_ROWS; ++m) {
+                                if (SETS[l][m] != cell1 && SETS[l][m] != cell0 && SETS[l][m] != cell) {
+                                    remove(SETS[l][m], i);
+                                    remove(SETS[l][m], j);
+                                    remove(SETS[l][m], k);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
+    public void intersect() {
+        for (int i = 0; i < NUM_ROWS; ++i) {
+            final int bit = 1 << i;
+            for (int j = 0; j < SETS.length; ++j) {
+                int cell = -1;
+                int count = 0;
+                for (int k = 0; k < NUM_ROWS; ++k) {
+                    if ((bits[SETS[j][k]] & bit) != 0) {
+                        cell = SETS[j][k];
+                        count++;
+                    }
+                }
+                if (count == 1 && this.count[cell] > 1) {
+                    LOGGER.info("Intersection: " + cell + " is " + (i + 1));
+                    set(cell, i);
+                }
+            }
+        }
+    }
+
+    public void remove(int cell, int num) {
+        if (count[cell] > 1) {
+            final short bit = (short) (1 << num);
+
+            if ((bits[cell] & bit) != 0) {
+                bits[cell] &= ~bit;
+                if (count[cell] == 2) {
+                    eliminate(cell, toBit(bits[cell]));
+                }
+                else {
+                    --count[cell];
+                }
+            }
+        }
+        // else {
+        // throw new IllegalArgumentException("Cell is already known");
+        // }
+    }
+
     public void set(int cell, int num) {
-        if (this.count[cell] > 1) {
+        if (count[cell] > 1) {
             final short[] sets = CELL_TO_SETS[cell];
             final short bit = (short) (1 << num);
 
-            if ((this.bits[cell] & bit) == 0) {
+            if ((bits[cell] & bit) == 0) {
                 throw new IllegalArgumentException("Cell state conflict");
             }
 
             for (int i = 0; i < sets.length; ++i) {
                 for (int j = 0; j < NUM_ROWS; ++j) {
                     final short other = SETS[sets[i]][j];
-                    if (other != cell && this.count[other] == 1 && this.bits[other] == bit) {
+                    if (other != cell && count[other] == 1 && bits[other] == bit) {
                         throw new IllegalArgumentException("Cell state conflict");
                     }
                 }
             }
 
-            this.bits[cell] = bit;
-            this.count[cell] = 1;
-            this.known++;
+            bits[cell] = bit;
+            count[cell] = 1;
+            known++;
 
             for (int i = 0; i < sets.length; ++i) {
                 for (int j = 0; j < NUM_ROWS; ++j) {
                     final short other = SETS[sets[i]][j];
-                    if (other != cell && (this.bits[other] & bit) != 0) {
-                        this.remove(other, num);
+                    if (other != cell && (bits[other] & bit) != 0) {
+                        remove(other, num);
                     }
                 }
             }
@@ -160,7 +254,7 @@ public class Sudoku {
     public void dump() {
         for (int i = 0; i < NUM_ROWS; ++i) {
             for (int j = 0; j < NUM_ROWS; ++j) {
-                this.dump(this.bits[i * NUM_ROWS + j]);
+                this.dump(bits[i * NUM_ROWS + j]);
                 System.out.print(' ');
                 if (j % 3 == 2) {
                     System.out.print(' ');
@@ -193,5 +287,23 @@ public class Sudoku {
             me = new Sudoku();
         }
         me.dump();
+        int k;
+        do {
+            do {
+                k = me.known;
+                me.intersect();
+                me.dump();
+            }
+            while (k != me.known && me.known < NUM_ROWS * NUM_ROWS);
+            me.lockedPair();
+            me.dump();
+        }
+        while (k != me.known && me.known < NUM_ROWS * NUM_ROWS);
+        me.lockedTrio();
+        me.dump();
+
+        if (me.known == NUM_ROWS * NUM_ROWS) {
+            LOGGER.info("Done!");
+        }
     }
 }
